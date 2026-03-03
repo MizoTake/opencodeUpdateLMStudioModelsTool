@@ -145,9 +145,13 @@ def main():
     parser = argparse.ArgumentParser(
         description="Fetch LM Studio models and register them in opencode.jsonc"
     )
+    # exe（PyInstaller）実行時はデフォルトで force を有効にする
+    is_frozen = getattr(sys, "frozen", False)
     parser.add_argument(
         "--force", action="store_true",
+        default=is_frozen,
         help="Force update even if lmstudio models already exist in config"
+            + (" (default: True in exe mode)" if is_frozen else "")
     )
     parser.add_argument(
         "--api-base",
