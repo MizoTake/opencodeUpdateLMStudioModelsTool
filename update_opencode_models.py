@@ -1,5 +1,6 @@
 import os
 import sys
+import copy
 import json
 import argparse
 import requests
@@ -32,6 +33,22 @@ def create_model_entry(model_id: str, **kwargs) -> Dict:
         }
     }
     return entry
+
+
+def merge_model_entry(existing_entry: Dict, model: Dict) -> Dict:
+    """既存モデル設定を保持しつつ、モデル一覧の更新に必要な項目のみ反映する"""
+    if not existing_entry:
+        return create_model_entry(
+            model_id=model["id"],
+            name=model.get("name", model["id"]),
+            tool_call=model.get("tool_call", True),
+            temperature=model.get("temperature", True),
+            context_length=model.get("context_length", 32768),
+            output_length=model.get("max_tokens", 8192),
+        )
+    merged_entry = copy.deepcopy(existing_entry)
+    merged_entry["name"] = model.get("name", merged_entry.get("name", model["id"]))
+    return merged_entry
 
 
 def load_opencode_config() -> Dict:
@@ -85,34 +102,19 @@ def update_opencode_config(models_data: List[Dict], api_base: str) -> bool:
     if "provider" not in config:
         config["provider"] = {}
 
-    # lmstudio プロバイダー定義を構築
-    provider_def = {
-        "name": "LM Studio",
-        "npm": "@ai-sdk/openai-compatible",
-        "models": {},
-        "options": {
-            "baseURL": api_base
-        }
-    }
+    existing_provider_def = config["provider"].get(PROVIDER_ID, {})
+    existing_models = existing_provider_def.get("models", {})
+    provider_def = copy.deepcopy(existing_provider_def)
+    provider_def.setdefault("name", "LM Studio")
+    provider_def.setdefault("npm", "@ai-sdk/openai-compatible")
+    provider_def.setdefault("options", {"baseURL": api_base})
+    provider_def.setdefault("env", ["LMSTUDIO_API_KEY"])
 
-    # API キーは opencode.jsonc に書き込まず、環境変数 LMSTUDIO_API_KEY で管理する
-    # OpenCode は env 定義に従って環境変数から自動的に読み取る
-    provider_def["env"] = ["LMSTUDIO_API_KEY"]
-
-    # モデルエントリを生成
+    updated_models = {}
     for model in models_data:
         model_id = model["id"]
-        context_length = model.get("context_length", 32768)
-        output_length = model.get("max_tokens", 8192)
-
-        provider_def["models"][model_id] = create_model_entry(
-            model_id=model_id,
-            name=model.get("name", model_id),
-            tool_call=model.get("tool_call", True),
-            temperature=model.get("temperature", True),
-            context_length=context_length,
-            output_length=output_length,
-        )
+        updated_models[model_id] = merge_model_entry(existing_models.get(model_id, {}), model)
+    provider_def["models"] = updated_models
 
     config["provider"][PROVIDER_ID] = provider_def
 
